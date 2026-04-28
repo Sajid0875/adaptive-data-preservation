@@ -1,0 +1,21 @@
+/* assets/css/style.css */
+
+.sidebar{
+  width: 260px;
+  min-height: 100vh;
+  background: var(--bs-body-bg);
+}
+
+.sidebar .nav-link{
+  color: var(--bs-body-color);
+  border-radius: .5rem;
+}
+
+.sidebar .nav-link.active{
+  background: var(--bs-tertiary-bg);
+  font-weight: 600;
+}
+
+.table td, .table th{
+  vertical-align: middle;
+}
