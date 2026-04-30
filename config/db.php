@@ -3,6 +3,11 @@
 
 declare(strict_types=1);
 
+if (getenv('APP_DEBUG')) {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+}
+
 function db(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) {
@@ -12,7 +17,7 @@ function db(): PDO {
     $host = getenv('DB_HOST') ?: '127.0.0.1';
     $port = getenv('DB_PORT') ?: '5432';
     $name = getenv('DB_NAME') ?: 'universe_preservation';
-    $user = getenv('DB_USER') ?: 'postgres';
+    $user = getenv('DB_USER') ?: (getenv('USER') ?: (getenv('LOGNAME') ?: 'postgres'));
     $pass = getenv('DB_PASS') ?: '';
 
     $dsn = "pgsql:host={$host};port={$port};dbname={$name}";

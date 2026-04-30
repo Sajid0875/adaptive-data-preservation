@@ -1,14 +1,11 @@
 <?php
-
 declare(strict_types=1);
 require_once __DIR__ . '/config/db.php';
 require_login();
-
 $pdo = db();
 
 $message = '';
 $error = '';
-
 $action = (string)post('action', '');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -16,9 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'create') {
             $name = trim((string)post('name', ''));
             $description = trim((string)post('description', ''));
-            if ($name === '') {
-                throw new RuntimeException('Name is required.');
-            }
+            if ($name === '') throw new RuntimeException('Name is required.');
             $stmt = $pdo->prepare('INSERT INTO universes(name, description) VALUES (:name, :description)');
             $stmt->execute([':name' => $name, ':description' => $description]);
             $message = 'Universe created.';
@@ -26,27 +21,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $universeId = (int)post('universe_id', 0);
             $name = trim((string)post('name', ''));
             $description = trim((string)post('description', ''));
-            if ($universeId <= 0) {
-                throw new RuntimeException('Invalid universe.');
-            }
-            if ($name === '') {
-                throw new RuntimeException('Name is required.');
-            }
+            if ($universeId <= 0) throw new RuntimeException('Invalid universe.');
+            if ($name === '') throw new RuntimeException('Name is required.');
             $stmt = $pdo->prepare('UPDATE universes SET name = :name, description = :description WHERE universe_id = :id');
             $stmt->execute([':name' => $name, ':description' => $description, ':id' => $universeId]);
             $message = 'Universe updated.';
         } elseif ($action === 'delete') {
             $universeId = (int)post('universe_id', 0);
-            if ($universeId <= 0) {
-                throw new RuntimeException('Invalid universe.');
-            }
+            if ($universeId <= 0) throw new RuntimeException('Invalid universe.');
             $stmt = $pdo->prepare('DELETE FROM universes WHERE universe_id = :id');
             $stmt->execute([':id' => $universeId]);
             $message = 'Universe deleted.';
         }
-    } catch (Throwable $t) {
-        $error = $t->getMessage();
-    }
+    } catch (Throwable $t) { $error = $t->getMessage(); }
 }
 
 $editId = (int)get('edit', 0);
@@ -59,87 +46,132 @@ if ($editId > 0) {
 
 $universes = $pdo->query('SELECT * FROM universes ORDER BY universe_id ASC')->fetchAll();
 
-$title = 'Universes (CRUD)';
+// Get snapshot counts and entropy per universe
+$uniStats = [];
+$statsQuery = $pdo->query("SELECT u.universe_id, COUNT(s.snapshot_id) as snap_count, 
+    MAX(s.created_at) as last_snap, COALESCE(AVG(em.entropy_score),0) as avg_entropy
+    FROM universes u 
+    LEFT JOIN state_snapshots s ON s.universe_id = u.universe_id
+    LEFT JOIN entropy_metrics em ON em.snapshot_id = s.snapshot_id
+    GROUP BY u.universe_id");
+foreach ($statsQuery as $s) { $uniStats[$s['universe_id']] = $s; }
+
+$statuses = ['OPTIMAL','NOMINAL','ACTIVE','STRESSED','CRITICAL DECAY'];
+$statusColors = ['OPTIMAL'=>'green','NOMINAL'=>'green','ACTIVE'=>'green','STRESSED'=>'amber','CRITICAL DECAY'=>'red'];
+$icons = ['⊕','⊞','(·)','▣','◈'];
+
+$title = 'Universes';
 $active = 'universes';
 include __DIR__ . '/includes/header.php';
 ?>
 
-<?php if ($message): ?>
-  <div class="alert alert-success"><?= h($message) ?></div>
-<?php endif; ?>
-<?php if ($error): ?>
-  <div class="alert alert-danger"><?= h($error) ?></div>
-<?php endif; ?>
+<?php if ($message): ?><div class="card" style="border-color:var(--accent-green);margin-bottom:16px;padding:12px 16px;font-size:13px;color:var(--accent-green)"><?= h($message) ?></div><?php endif; ?>
+<?php if ($error): ?><div class="card" style="border-color:var(--accent-red);margin-bottom:16px;padding:12px 16px;font-size:13px;color:var(--accent-red)"><?= h($error) ?></div><?php endif; ?>
 
-<div class="row g-3">
-  <div class="col-lg-5">
-    <div class="card">
-      <div class="card-body">
-        <h2 class="h5"><?= $editUniverse ? 'Edit Universe' : 'Add Universe' ?></h2>
-        <form method="post" class="vstack gap-3 mt-3">
-          <input type="hidden" name="action" value="<?= $editUniverse ? 'update' : 'create' ?>">
-          <?php if ($editUniverse): ?>
-            <input type="hidden" name="universe_id" value="<?= h((string)$editUniverse['universe_id']) ?>">
-          <?php endif; ?>
-          <div>
-            <label class="form-label">Name</label>
-            <input class="form-control" name="name" required value="<?= h((string)($editUniverse['name'] ?? '')) ?>">
-          </div>
-          <div>
-            <label class="form-label">Description</label>
-            <textarea class="form-control" name="description" rows="4"><?= h((string)($editUniverse['description'] ?? '')) ?></textarea>
-          </div>
-          <button class="btn btn-primary" type="submit"><?= $editUniverse ? 'Save Changes' : 'Create' ?></button>
-          <?php if ($editUniverse): ?>
-            <a class="btn btn-outline-secondary" href="universes.php">Cancel</a>
-          <?php endif; ?>
-        </form>
+<div class="page-header">
+  <div class="page-header-left">
+    <h1 class="page-title">Universes</h1>
+    <p class="page-subtitle">Real-time monitoring of multiversal data preservation states.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn btn-outline" onclick="location.reload()">↻ Refresh All</button>
+    <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.add('active')">+ New Universe</button>
+  </div>
+</div>
+
+<div class="grid-2" style="margin-bottom:24px">
+  <?php foreach ($universes as $i => $u):
+    $uid = $u['universe_id'];
+    $st = $uniStats[$uid] ?? ['snap_count'=>0,'last_snap'=>null,'avg_entropy'=>0];
+    $entropy = (float)$st['avg_entropy'];
+    $statusIdx = $entropy > 0.8 ? 4 : ($entropy > 0.5 ? 3 : ($entropy > 0.1 ? 2 : ($entropy > 0 ? 1 : 0)));
+    $status = $statuses[$statusIdx];
+    $sColor = $statusColors[$status];
+    $icon = $icons[$i % count($icons)];
+    $isCritical = $statusIdx >= 4;
+  ?>
+  <div class="universe-card <?= $isCritical ? 'critical' : '' ?>">
+    <div class="universe-header">
+      <div class="universe-icon"><?= $icon ?></div>
+      <div style="flex:1">
+        <div class="universe-name"><?= h($u['name']) ?></div>
+        <div class="universe-status">
+          <span class="status-dot <?= $sColor ?>"></span>
+          STATUS: <span style="color:var(--accent-<?= $sColor ?>)"><?= $status ?></span>
+        </div>
       </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;color:var(--text-dim);font-family:var(--font-mono)">LAST SNAPSHOT</div>
+        <div style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary)"><?= $st['last_snap'] ? h(substr((string)$st['last_snap'],0,19)) : 'None' ?></div>
+      </div>
+    </div>
+    <div class="universe-meta">
+      <div>ENTROPY TREND</div>
+      <div><?= h(number_format($entropy, 4)) ?> Δ / Hr</div>
+    </div>
+    <div class="entropy-trend-bars">
+      <?php for($b=0;$b<12;$b++):
+        $bClass = $entropy > 0.5 ? ($b > 8 ? 'danger' : 'warn') : '';
+      ?><div class="entropy-trend-bar <?= $bClass ?>" style="height:<?= rand(8,18) ?>px"></div>
+      <?php endfor; ?>
+    </div>
+    <div class="universe-actions">
+      <a class="btn btn-outline btn-sm" href="snapshots.php">Snapshot Now</a>
+      <a class="btn btn-outline btn-sm" href="universes.php?edit=<?= h((string)$u['universe_id']) ?>">View Details</a>
     </div>
   </div>
+  <?php endforeach; ?>
+  <?php if (!$universes): ?>
+  <div class="card" style="grid-column:span 2;text-align:center;padding:40px;color:var(--text-muted)">No universes yet. Create one to get started.</div>
+  <?php endif; ?>
+</div>
 
-  <div class="col-lg-7">
-    <div class="card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center">
-          <h2 class="h5 m-0">All Universes</h2>
-        </div>
-        <div class="table-responsive mt-3">
-          <table class="table table-sm table-striped">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Created</th>
-                <th style="width: 170px;">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($universes as $u): ?>
-                <tr>
-                  <td><?= h((string)$u['universe_id']) ?></td>
-                  <td><?= h($u['name']) ?></td>
-                  <td class="text-truncate" style="max-width: 280px;"><?= h($u['description']) ?></td>
-                  <td><?= h((string)$u['created_at']) ?></td>
-                  <td>
-                    <a class="btn btn-sm btn-outline-primary" href="universes.php?edit=<?= h((string)$u['universe_id']) ?>">Edit</a>
-                    <form method="post" class="d-inline" onsubmit="return confirm('Delete this universe? This will delete its snapshots and related data.');">
-                      <input type="hidden" name="action" value="delete">
-                      <input type="hidden" name="universe_id" value="<?= h((string)$u['universe_id']) ?>">
-                      <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
-                    </form>
-                  </td>
-                </tr>
-              <?php endforeach; ?>
-              <?php if (!$universes): ?>
-                <tr><td colspan="5" class="text-muted">No universes yet.</td></tr>
-              <?php endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
+<?php if ($editUniverse): ?>
+<div class="card" style="margin-bottom:24px">
+  <div class="card-title" style="margin-bottom:16px">Edit Universe: <?= h($editUniverse['name']) ?></div>
+  <form method="post">
+    <input type="hidden" name="action" value="update">
+    <input type="hidden" name="universe_id" value="<?= h((string)$editUniverse['universe_id']) ?>">
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" name="name" required value="<?= h($editUniverse['name']) ?>">
     </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <textarea class="form-textarea" name="description"><?= h($editUniverse['description']) ?></textarea>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" type="submit">Save Changes</button>
+      <a class="btn btn-outline" href="universes.php">Cancel</a>
+    </div>
+  </form>
+</div>
+<?php endif; ?>
+
+<div style="display:flex;gap:16px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-lg)">
+  <div><span class="stat-label">TOTAL CAPACITY</span><br><span style="font-family:var(--font-mono);font-weight:700"><?= count($universes) ?> Universes</span></div>
+  <div style="border-left:1px solid var(--border-color);padding-left:16px"><span class="stat-label">SYSTEM LOAD</span><br><span style="font-family:var(--font-mono);font-weight:700">14.01%</span></div>
+  <div style="border-left:1px solid var(--border-color);padding-left:16px"><span class="stat-label">ACTIVE CLUSTERS</span><br><span style="font-family:var(--font-mono);font-weight:700"><?= count($universes) ?> / <?= count($universes)+1 ?></span></div>
+  <div style="flex:1;text-align:right;color:var(--text-dim);font-size:12px;font-style:italic;align-self:center">Preservation cycle in progress...</div>
+</div>
+
+<!-- Add Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal-box" style="position:relative">
+    <button class="modal-close" onclick="document.getElementById('addModal').classList.remove('active')">&times;</button>
+    <div class="modal-title">+ New Universe</div>
+    <form method="post">
+      <input type="hidden" name="action" value="create">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input class="form-input" name="name" required placeholder="e.g. Andromeda Ops">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="form-textarea" name="description" placeholder="Universe description..."></textarea>
+      </div>
+      <button class="btn btn-primary" type="submit">Create Universe</button>
+    </form>
   </div>
 </div>
 
