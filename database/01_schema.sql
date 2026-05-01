@@ -80,6 +80,10 @@ CREATE TABLE preservation_decisions (
   entropy_id BIGINT NOT NULL UNIQUE REFERENCES entropy_metrics(entropy_id) ON DELETE CASCADE,
   decision_type TEXT NOT NULL,
   decided_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_manual BOOLEAN DEFAULT FALSE,
+  manual_reason TEXT,
+  overridden_at TIMESTAMPTZ NULL,
+  reason TEXT,
   CONSTRAINT preservation_decisions_decision_type_chk CHECK (decision_type IN ('DISCARD','COMPRESS','PRESERVE','ARCHIVE'))
 );
 

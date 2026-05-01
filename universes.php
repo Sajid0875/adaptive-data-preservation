@@ -44,7 +44,18 @@ if ($editId > 0) {
     $editUniverse = $stmt->fetch() ?: null;
 }
 
-$universes = $pdo->query('SELECT * FROM universes ORDER BY universe_id ASC')->fetchAll();
+$search = get('search', '');
+$query = "SELECT * FROM universes WHERE 1=1";
+$params = [];
+if ($search !== '') {
+    $query .= " AND (name ILIKE ? OR description ILIKE ?)";
+    $params[] = '%' . $search . '%';
+    $params[] = '%' . $search . '%';
+}
+$query .= " ORDER BY universe_id ASC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$universes = $stmt->fetchAll();
 
 // Get snapshot counts and entropy per universe
 $uniStats = [];
@@ -74,9 +85,21 @@ include __DIR__ . '/includes/header.php';
     <p class="page-subtitle">Real-time monitoring of multiversal data preservation states.</p>
   </div>
   <div class="page-actions">
-    <button class="btn btn-outline" onclick="location.reload()">↻ Refresh All</button>
     <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.add('active')">+ New Universe</button>
   </div>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+  <form method="GET" style="display:flex; gap:16px; align-items:flex-end;">
+    <div style="flex:1;">
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Search Name or Description</label>
+      <input type="text" name="search" class="search-input" style="width:100%;" value="<?= h($search) ?>" placeholder="Search...">
+    </div>
+    <div>
+      <button type="submit" class="btn btn-primary">Search</button>
+      <a href="universes.php" class="btn btn-outline">Clear</a>
+    </div>
+  </form>
 </div>
 
 <div class="grid-2" style="margin-bottom:24px">
@@ -112,7 +135,8 @@ include __DIR__ . '/includes/header.php';
     <div class="entropy-trend-bars">
       <?php for($b=0;$b<12;$b++):
         $bClass = $entropy > 0.5 ? ($b > 8 ? 'danger' : 'warn') : '';
-      ?><div class="entropy-trend-bar <?= $bClass ?>" style="height:<?= rand(8,18) ?>px"></div>
+        $h = 8 + (intval(substr(md5($uid . $b), 0, 1), 16) % 11);
+      ?><div class="entropy-trend-bar <?= $bClass ?>" style="height:<?= $h ?>px"></div>
       <?php endfor; ?>
     </div>
     <div class="universe-actions">

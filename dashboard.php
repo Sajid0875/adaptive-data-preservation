@@ -7,6 +7,7 @@ $pdo = db();
 $totalUniverses = (int)$pdo->query('SELECT COUNT(*) FROM universes')->fetchColumn();
 $totalSnapshots = (int)$pdo->query('SELECT COUNT(*) FROM state_snapshots')->fetchColumn();
 $avgEntropy = $pdo->query('SELECT COALESCE(AVG(entropy_score),0) FROM entropy_metrics')->fetchColumn();
+$maxEntropy = (float)$pdo->query('SELECT COALESCE(MAX(entropy_score),0) FROM entropy_metrics')->fetchColumn();
 
 $decisionCounts = ['DISCARD'=>0,'COMPRESS'=>0,'PRESERVE'=>0,'ARCHIVE'=>0];
 $stmt = $pdo->query('SELECT decision_type, COUNT(*) AS c FROM preservation_decisions GROUP BY decision_type');
@@ -15,10 +16,44 @@ foreach ($stmt as $row) { $decisionCounts[$row['decision_type']] = (int)$row['c'
 $totalDecisions = array_sum($decisionCounts);
 $rows = $pdo->query('SELECT * FROM snapshot_summary ORDER BY snapshot_created_at DESC LIMIT 10')->fetchAll();
 
+// Entropy trends for dashboard
+$trendRows = $pdo->query('SELECT day, avg_entropy FROM entropy_trends ORDER BY day ASC LIMIT 14')->fetchAll();
+$trendLabels = [];
+$trendData = [];
+foreach ($trendRows as $tr) {
+    $trendLabels[] = substr($tr['day'], 0, 10);
+    $trendData[] = round((float)$tr['avg_entropy'], 4);
+}
+
+$chartData = [
+    'decisionDist' => array_values($decisionCounts),
+    'trendLabels' => $trendLabels,
+    'trendData' => $trendData
+];
+
 $title = 'Dashboard';
 $active = 'dashboard';
 include __DIR__ . '/includes/header.php';
 ?>
+
+<script>
+window.chartData = window.chartData || {};
+window.chartData.dashboard = <?= json_encode($chartData) ?>;
+</script>
+
+<?php if ($maxEntropy > 0.7): 
+    $highEntSnap = $pdo->query('SELECT snapshot_id, universe_name, entropy_score, decision_type FROM snapshot_summary WHERE entropy_score > 0.7 ORDER BY entropy_score DESC LIMIT 1')->fetch();
+?>
+<div class="card" style="border-left: 4px solid var(--accent-red); background-color: rgba(239, 68, 68, 0.05); margin-bottom: 24px;">
+    <div style="display: flex; align-items: center; gap: 12px; color: var(--accent-red);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <div>
+            <strong>CRITICAL: High Entropy Detected</strong><br>
+            Universe: <?= h($highEntSnap['universe_name']) ?> | Snapshot #<?= $highEntSnap['snapshot_id'] ?> | Score: <?= number_format((float)$highEntSnap['entropy_score'], 6) ?> | Action: <?= h($highEntSnap['decision_type']) ?>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="page-header">
   <div class="page-header-left">
@@ -26,6 +61,17 @@ include __DIR__ . '/includes/header.php';
     <h1 class="page-title">Dashboard</h1>
     <p class="page-subtitle">Centralized overview of the Universe System's data preservation state.</p>
   </div>
+</div>
+
+<div class="grid-2-1" style="margin-bottom:24px;">
+    <div class="card">
+        <div class="card-header"><div class="card-title">Entropy Trend (14 Days)</div></div>
+        <div style="height: 200px;"><canvas id="dashTrendChart"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="card-header"><div class="card-title">Decision Distribution</div></div>
+        <div style="height: 200px;"><canvas id="dashDistChart"></canvas></div>
+    </div>
 </div>
 
 <div class="stat-grid">
@@ -115,17 +161,24 @@ include __DIR__ . '/includes/header.php';
             $dt = strtolower($r['decision_type'] ?? '');
             $bc = match($dt) { 'discard'=>'badge-discard','compress'=>'badge-compress','preserve'=>'badge-preserve','archive'=>'badge-archive', default=>'' };
             ?>
-            <?php if($dt): ?><span class="badge <?= $bc ?>"><?= h(strtoupper($dt)) ?></span><?php endif; ?>
+            <?php if($dt): ?><span class="badge <?= $bc ?>" title="<?= h($r['reason'] ?? '') ?>"><?= h(strtoupper($dt)) ?></span><?php endif; ?>
           </td>
           <td>
             <?php
             $is = strtolower($r['integrity_status'] ?? '');
-            $ibc = match($is) { 'verified'=>'badge-verified','corrupted'=>'badge-failing','pending'=>'badge-warning', default=>'' };
+            $ibc = match($is) { 'valid'=>'badge-verified','corrupted'=>'badge-failing','pending'=>'badge-warning', default=>'' };
             ?>
             <?php if($is): ?><span class="badge <?= $ibc ?>"><?= h(strtoupper($is)) ?></span><?php endif; ?>
           </td>
           <td style="font-family:var(--font-mono);font-size:11px"><?= h((string)$r['snapshot_created_at']) ?></td>
         </tr>
+        <?php if (!empty($r['reason'])): ?>
+        <tr>
+          <td colspan="8" style="padding: 4px 16px 12px 16px; border-top: none; color: var(--text-muted); font-size: 12px; font-family: var(--font-mono);">
+            Reason: <?= h($r['reason']) ?>
+          </td>
+        </tr>
+        <?php endif; ?>
         <?php endforeach; ?>
         <?php if (!$rows): ?>
         <tr><td colspan="8" style="color:var(--text-muted);text-align:center;padding:20px">No snapshots yet.</td></tr>

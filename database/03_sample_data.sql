@@ -9,7 +9,10 @@ INSERT INTO universes(name, description) VALUES
   ('Orion Ledger', 'Versioned financial-like records with preservation rules'),
   ('Helios Telemetry', 'High-frequency telemetry snapshots and change tracking'),
   ('Nexus Registry', 'Master data registry with periodic compaction'),
-  ('Aurora Archive', 'Archive-heavy workloads for compliance and retention');
+  ('Aurora Archive', 'Archive-heavy workloads for compliance and retention'),
+  ('Quantum Logistics', 'Supply chain routing events and telemetry'),
+  ('Titan Finance', 'High-frequency trading records and ledgers'),
+  ('Cyberdyne Systems', 'AI training model checkpoints and deltas');
 
 -- Snapshots
 -- Keep sizes realistic (MB). Created_at auto.
@@ -23,7 +26,13 @@ INSERT INTO state_snapshots(universe_id, version_number, snapshot_size_mb) VALUE
   (4, 1, 100.000),
   (4, 2, 100.000),
   (5, 1, 8.000),
-  (5, 2, 8.000);
+  (5, 2, 8.000),
+  (6, 1, 150.000),
+  (6, 2, 150.000),
+  (7, 1, 45.000),
+  (7, 2, 45.000),
+  (8, 1, 2500.000),
+  (8, 2, 2500.000);
 
 -- Changes (weights auto via trigger if supplied <=0)
 -- Snapshot 1 (Universe 1, v1): no changes => entropy=0 => DISCARD
@@ -72,5 +81,30 @@ INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
   (10, 'DELETE', 0),
   (10, 'DELETE', 0),
   (10, 'CORRUPTION', 0);
+
+-- Snapshot 11 (Universe 6, v1): PRESERVE
+INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
+  (11, 'UPDATE', 0),
+  (11, 'CREATE', 0);
+
+-- Snapshot 12 (Universe 6, v2): ARCHIVE (High entropy)
+INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
+  (12, 'UPDATE', 0), (12, 'UPDATE', 0), (12, 'UPDATE', 0), (12, 'UPDATE', 0),
+  (12, 'DELETE', 0), (12, 'DELETE', 0), (12, 'CORRUPTION', 0);
+
+-- Snapshot 13 (Universe 7, v1): DISCARD
+-- (No changes)
+
+-- Snapshot 14 (Universe 7, v2): COMPRESS
+INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
+  (14, 'CREATE', 0);
+
+-- Snapshot 15 (Universe 8, v1): PRESERVE
+INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
+  (15, 'UPDATE', 0), (15, 'UPDATE', 0), (15, 'UPDATE', 0), (15, 'UPDATE', 0), (15, 'UPDATE', 0);
+
+-- Snapshot 16 (Universe 8, v2): ARCHIVE
+INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES
+  (16, 'UPDATE', 0), (16, 'DELETE', 0), (16, 'CORRUPTION', 0);
 
 COMMIT;

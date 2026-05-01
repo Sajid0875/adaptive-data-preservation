@@ -22,7 +22,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $snapshots = $pdo->query("SELECT s.snapshot_id, u.name AS universe_name, s.version_number, s.created_at FROM state_snapshots s JOIN universes u ON u.universe_id = s.universe_id ORDER BY s.created_at DESC")->fetchAll();
-$changes = $pdo->query("SELECT c.change_id, c.snapshot_id, u.name AS universe_name, s.version_number, c.change_type, c.change_weight, c.created_at FROM state_changes c JOIN state_snapshots s ON s.snapshot_id = c.snapshot_id JOIN universes u ON u.universe_id = s.universe_id ORDER BY c.created_at DESC")->fetchAll();
+
+$searchUni = get('universe', '');
+$filterType = get('change_type', '');
+
+$query = "SELECT c.change_id, c.snapshot_id, u.name AS universe_name, s.version_number, c.change_type, c.change_weight, c.created_at FROM state_changes c JOIN state_snapshots s ON s.snapshot_id = c.snapshot_id JOIN universes u ON u.universe_id = s.universe_id WHERE 1=1";
+$params = [];
+
+if ($searchUni !== '') {
+    $query .= " AND u.name ILIKE ?";
+    $params[] = '%' . $searchUni . '%';
+}
+if ($filterType !== '') {
+    $query .= " AND c.change_type = ?";
+    $params[] = strtoupper($filterType);
+}
+
+$query .= " ORDER BY c.created_at DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$changes = $stmt->fetchAll();
 
 // Count by type
 $typeCounts = ['CREATE'=>0,'UPDATE'=>0,'DELETE'=>0,'CORRUPTION'=>0];
@@ -33,6 +52,13 @@ $active = 'changes';
 include __DIR__ . '/includes/header.php';
 ?>
 
+<script>
+window.chartData = window.chartData || {};
+window.chartData.changes = {
+    types: <?= json_encode(array_values($typeCounts)) ?>
+};
+</script>
+
 <?php if ($message): ?><div class="card" style="border-color:var(--accent-green);margin-bottom:16px;padding:12px 16px;font-size:13px;color:var(--accent-green)"><?= h($message) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="card" style="border-color:var(--accent-red);margin-bottom:16px;padding:12px 16px;font-size:13px;color:var(--accent-red)"><?= h($error) ?></div><?php endif; ?>
 
@@ -42,17 +68,39 @@ include __DIR__ . '/includes/header.php';
     <p class="page-subtitle">Visualizing dimensional data drift and structural deltas across snapshot timelines.</p>
   </div>
   <div class="page-actions">
-    <button class="btn btn-outline">Filter Range</button>
-    <button class="btn btn-primary">Export Delta Report</button>
+    <button class="btn btn-primary" onclick="document.getElementById('changeModal').classList.add('active')">+ Add Change</button>
   </div>
 </div>
 
-<!-- Drift Timeline Chart -->
+<div class="card" style="margin-bottom: 16px;">
+  <form method="GET" style="display:flex; gap:16px; align-items:flex-end;">
+    <div>
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Universe Name</label>
+      <input type="text" name="universe" class="search-input" value="<?= h($searchUni) ?>" placeholder="Search...">
+    </div>
+    <div>
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Change Type</label>
+      <select name="change_type" class="search-input">
+        <option value="">All</option>
+        <option value="CREATE" <?= $filterType==='CREATE' ? 'selected':'' ?>>CREATE</option>
+        <option value="UPDATE" <?= $filterType==='UPDATE' ? 'selected':'' ?>>UPDATE</option>
+        <option value="DELETE" <?= $filterType==='DELETE' ? 'selected':'' ?>>DELETE</option>
+        <option value="CORRUPTION" <?= $filterType==='CORRUPTION' ? 'selected':'' ?>>CORRUPTION</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+      <a href="state_changes.php" class="btn btn-outline">Clear</a>
+    </div>
+  </form>
+</div>
+
+<!-- Drift Timeline Chart (now Distribution Pie Chart) -->
 <div class="card" style="margin-bottom:16px">
   <div class="card-header">
     <div>
-      <div class="card-title">Dimensional Drift Timeline</div>
-      <div class="card-subtitle">Comparative analysis across snapshots</div>
+      <div class="card-title">Change Type Distribution</div>
+      <div class="card-subtitle">Overview of operations across all universes</div>
     </div>
   </div>
   <div class="chart-container tall">

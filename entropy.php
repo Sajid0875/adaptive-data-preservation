@@ -4,7 +4,28 @@ require_once __DIR__ . '/config/db.php';
 require_login();
 $pdo = db();
 
-$rows = $pdo->query("SELECT em.entropy_id, em.snapshot_id, em.entropy_score, em.calculated_at, u.name AS universe_name, s.version_number, s.snapshot_size_mb, s.created_at AS snapshot_created_at FROM entropy_metrics em JOIN state_snapshots s ON s.snapshot_id = em.snapshot_id JOIN universes u ON u.universe_id = s.universe_id ORDER BY em.calculated_at DESC")->fetchAll();
+$searchUni = get('universe', '');
+$minEntropy = get('min_entropy', '');
+
+$query = "SELECT em.entropy_id, em.snapshot_id, em.entropy_score, em.calculated_at, u.name AS universe_name, s.version_number, s.snapshot_size_mb, s.created_at AS snapshot_created_at, pd.decision_type FROM entropy_metrics em JOIN state_snapshots s ON s.snapshot_id = em.snapshot_id JOIN universes u ON u.universe_id = s.universe_id LEFT JOIN preservation_decisions pd ON pd.snapshot_id = em.snapshot_id WHERE 1=1";
+$params = [];
+
+if ($searchUni !== '') {
+    $query .= " AND u.name ILIKE ?";
+    $params[] = '%' . $searchUni . '%';
+}
+if ($minEntropy !== '') {
+    $query .= " AND em.entropy_score >= ?";
+    $params[] = (float)$minEntropy;
+}
+
+$query .= " ORDER BY em.calculated_at DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$rows = $stmt->fetchAll();
+
+$maxEntropyOverall = (float)$pdo->query('SELECT COALESCE(MAX(entropy_score),0) FROM entropy_metrics')->fetchColumn();
+
 
 $avgEntropy = 0; $maxEntropy = 0;
 if ($rows) {
@@ -17,6 +38,7 @@ $stablePercent = max(0, min(100, (1 - $avgEntropy) * 100));
 $trend = $pdo->query('SELECT * FROM entropy_trends ORDER BY universe_id, day')->fetchAll();
 
 // Per-universe entropy
+// Per-universe entropy for charts
 $uniEntropy = [];
 foreach ($rows as $r) {
     $uname = $r['universe_name'];
@@ -24,6 +46,18 @@ foreach ($rows as $r) {
     $uniEntropy[$uname]['scores'][] = (float)$r['entropy_score'];
     $uniEntropy[$uname]['max'] = max($uniEntropy[$uname]['max'], (float)$r['entropy_score']);
 }
+
+$chartData = [
+    'avgEntropy' => $avgEntropy,
+    'sectors' => []
+];
+foreach(array_slice(array_keys($uniEntropy), 0, 3) as $sName) {
+    $chartData['sectors'][] = [
+        'name' => $sName,
+        'scores' => array_slice(array_reverse($uniEntropy[$sName]['scores']), -10)
+    ];
+}
+
 
 $title = 'Entropy Analytics';
 $active = 'entropy';
@@ -137,7 +171,7 @@ include __DIR__ . '/includes/header.php';
         <span class="sector-name"><?= h(strtoupper(substr($sName, 0, 16))) ?></span>
         <span class="sector-drift positive">+<?= $drift ?>%</span>
       </div>
-      <div class="sector-coords">COORDINATES: <?= rand(10,99) ?>.<?= rand(0,9) ?>.<?= rand(0,9) ?>.<?= rand(10,99) ?></div>
+      <div class="sector-coords">COORDINATES: <?= substr(md5($sName),0,2) ?>.<?= substr(md5($sName),2,1) ?>.<?= substr(md5($sName),3,1) ?>.<?= substr(md5($sName),4,2) ?></div>
       <div class="chart-container" style="height:60px">
         <canvas class="sector-chart"></canvas>
       </div>

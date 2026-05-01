@@ -28,13 +28,14 @@ $$;
 -- =========
 
 -- calculate_entropy(snapshot_id)
--- Entropy = SUM(change_weight) / snapshot_size_mb
+-- Entropy = (SUM(change_weight) * COUNT(state_changes)) / snapshot_size_mb
 CREATE OR REPLACE FUNCTION calculate_entropy(p_snapshot_id BIGINT)
 RETURNS NUMERIC(18,6)
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_total_weight NUMERIC(18,6);
+  v_change_count INTEGER;
   v_size_mb NUMERIC(12,3);
   v_entropy NUMERIC(18,6);
 BEGIN
@@ -46,11 +47,11 @@ BEGIN
     RAISE EXCEPTION 'Snapshot % not found', p_snapshot_id;
   END IF;
 
-  SELECT COALESCE(SUM(change_weight), 0) INTO v_total_weight
+  SELECT COALESCE(SUM(change_weight), 0), COUNT(*) INTO v_total_weight, v_change_count
   FROM state_changes
   WHERE snapshot_id = p_snapshot_id;
 
-  v_entropy := (v_total_weight / v_size_mb);
+  v_entropy := (v_total_weight * v_change_count) / v_size_mb;
   IF v_entropy < 0 THEN
     v_entropy := 0;
   END IF;
@@ -69,6 +70,7 @@ DECLARE
   v_entropy_id BIGINT;
   v_entropy_score NUMERIC(18,6);
   v_decision TEXT;
+  v_reason TEXT;
 BEGIN
   -- Ensure entropy exists
   SELECT entropy_id, entropy_score INTO v_entropy_id, v_entropy_score
@@ -103,11 +105,33 @@ BEGIN
       v_decision := 'PRESERVE';
     END IF;
   END IF;
+  
+  -- Auto-generate reason
+  IF v_decision = 'DISCARD' THEN
+    v_reason := 'Entropy is zero or very low, snapshot contains minimal changes.';
+  ELSIF v_decision = 'COMPRESS' THEN
+    v_reason := 'Entropy is low, snapshot can be compressed to save storage.';
+  ELSIF v_decision = 'PRESERVE' THEN
+    v_reason := 'Entropy is moderate, snapshot should remain actively available.';
+  ELSIF v_decision = 'ARCHIVE' THEN
+    v_reason := 'Entropy is high, snapshot should be archived for long-term preservation.';
+  ELSE
+    v_reason := 'System auto-decision based on threshold evaluation.';
+  END IF;
 
-  INSERT INTO preservation_decisions(snapshot_id, entropy_id, decision_type, decided_at)
-  VALUES (p_snapshot_id, v_entropy_id, v_decision, NOW())
+  -- Ensure we don't overwrite manual overrides with an automatic pass unless needed,
+  -- but since triggers recompute all, we should probably just update the decision_type and reason if it's not manual.
+  -- Wait, the prompt implies "update decide_preservation() function so every automatic decision stores a reason"
+  -- We'll just do a standard upsert for now, but preserve manual flag if it exists? Actually, the prompt doesn't specify not overwriting manual decisions automatically, but we should be careful.
+  -- Let's just update the rule logic as asked:
+  INSERT INTO preservation_decisions(snapshot_id, entropy_id, decision_type, decided_at, reason)
+  VALUES (p_snapshot_id, v_entropy_id, v_decision, NOW(), v_reason)
   ON CONFLICT (snapshot_id)
-  DO UPDATE SET entropy_id = EXCLUDED.entropy_id, decision_type = EXCLUDED.decision_type, decided_at = EXCLUDED.decided_at;
+  DO UPDATE SET 
+    entropy_id = EXCLUDED.entropy_id, 
+    decision_type = CASE WHEN preservation_decisions.is_manual THEN preservation_decisions.decision_type ELSE EXCLUDED.decision_type END,
+    decided_at = EXCLUDED.decided_at,
+    reason = CASE WHEN preservation_decisions.is_manual THEN preservation_decisions.reason ELSE EXCLUDED.reason END;
 
   RETURN v_decision;
 END;
@@ -367,6 +391,10 @@ SELECT
   em.calculated_at,
   pd.decision_type,
   pd.decided_at,
+  pd.is_manual,
+  pd.manual_reason,
+  pd.overridden_at,
+  pd.reason,
   ic.status AS integrity_status,
   ic.checked_at,
   cs.compression_ratio,

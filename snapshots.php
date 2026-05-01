@@ -22,7 +22,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $universesList = $pdo->query('SELECT universe_id, name FROM universes ORDER BY name')->fetchAll();
-$rows = $pdo->query('SELECT * FROM snapshot_summary ORDER BY snapshot_created_at DESC')->fetchAll();
+
+$searchUni = get('universe', '');
+$filterDecision = get('decision', '');
+$filterIntegrity = get('integrity', '');
+
+$query = "SELECT * FROM snapshot_summary WHERE 1=1";
+$params = [];
+
+if ($searchUni !== '') {
+    $query .= " AND universe_name ILIKE ?";
+    $params[] = '%' . $searchUni . '%';
+}
+if ($filterDecision !== '') {
+    $query .= " AND decision_type = ?";
+    $params[] = strtoupper($filterDecision);
+}
+if ($filterIntegrity !== '') {
+    $query .= " AND integrity_status = ?";
+    $params[] = strtoupper($filterIntegrity);
+}
+
+$query .= " ORDER BY snapshot_created_at DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$rows = $stmt->fetchAll();
 
 $totalSizeMb = 0; $totalEntropy = 0; $entropyCount = 0; $pendingDecisions = 0;
 foreach ($rows as $r) {
@@ -50,9 +74,40 @@ include __DIR__ . '/includes/header.php';
     <p class="page-subtitle">Real-time versioning history and automated preservation records.</p>
   </div>
   <div class="page-actions">
-    <button class="btn btn-outline">⊜ FILTER</button>
+    <a href="export_snapshots.php" class="btn btn-outline">⊜ EXPORT CSV</a>
     <button class="btn btn-primary" onclick="document.getElementById('snapModal').classList.add('active')">⊙ MANUAL SNAPSHOT</button>
   </div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <form method="GET" style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+    <div>
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Universe Name</label>
+      <input type="text" name="universe" class="search-input" value="<?= h($searchUni) ?>" placeholder="Search...">
+    </div>
+    <div>
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Decision Type</label>
+      <select name="decision" class="search-input">
+        <option value="">All</option>
+        <option value="DISCARD" <?= $filterDecision==='DISCARD' ? 'selected':'' ?>>DISCARD</option>
+        <option value="COMPRESS" <?= $filterDecision==='COMPRESS' ? 'selected':'' ?>>COMPRESS</option>
+        <option value="PRESERVE" <?= $filterDecision==='PRESERVE' ? 'selected':'' ?>>PRESERVE</option>
+        <option value="ARCHIVE" <?= $filterDecision==='ARCHIVE' ? 'selected':'' ?>>ARCHIVE</option>
+      </select>
+    </div>
+    <div>
+      <label style="color:var(--text-muted); font-size:12px; display:block; margin-bottom:4px;">Integrity Status</label>
+      <select name="integrity" class="search-input">
+        <option value="">All</option>
+        <option value="VALID" <?= $filterIntegrity==='VALID' ? 'selected':'' ?>>VALID</option>
+        <option value="CORRUPTED" <?= $filterIntegrity==='CORRUPTED' ? 'selected':'' ?>>CORRUPTED</option>
+      </select>
+    </div>
+    <div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+      <a href="snapshots.php" class="btn btn-outline">Clear</a>
+    </div>
+  </form>
 </div>
 
 <div class="stat-grid">
@@ -98,8 +153,10 @@ include __DIR__ . '/includes/header.php';
           <td>
             <div style="display:flex;align-items:center;gap:8px">
               <div class="entropy-bars">
-                <?php for($b=0;$b<$barCount;$b++): ?>
-                <div class="entropy-bar" style="height:<?= ($b < $filledBars) ? rand(8,16) : 4 ?>px;opacity:<?= $b < $filledBars ? 1 : 0.3 ?>"></div>
+                <?php for($b=0;$b<$barCount;$b++): 
+                    $h = 8 + (intval(substr(md5($r['snapshot_id'] . $b), 0, 1), 16) % 9);
+                ?>
+                <div class="entropy-bar" style="height:<?= ($b < $filledBars) ? $h : 4 ?>px;opacity:<?= $b < $filledBars ? 1 : 0.3 ?>"></div>
                 <?php endfor; ?>
               </div>
               <span style="font-family:var(--font-mono);font-size:12px"><?= number_format($entropy, 3) ?></span>
@@ -109,7 +166,7 @@ include __DIR__ . '/includes/header.php';
           <td>
             <?php
             $is = strtolower($r['integrity_status'] ?? '');
-            $ibc = match($is) { 'verified'=>'badge-verified','corrupted'=>'badge-failing','pending'=>'badge-warning', default=>'badge-info' };
+            $ibc = match($is) { 'valid'=>'badge-verified','corrupted'=>'badge-failing','pending'=>'badge-warning', default=>'badge-info' };
             ?>
             <span class="badge <?= $ibc ?>"><?= h(strtoupper($is ?: 'PENDING')) ?></span>
           </td>
@@ -117,14 +174,21 @@ include __DIR__ . '/includes/header.php';
             <?php
             $dt = $r['decision_type'] ?? '';
             ?>
-            <span style="font-size:12px"><?= h($dt) ?></span>
+            <span style="font-size:12px" title="<?= h($r['reason'] ?? '') ?>"><?= h($dt) ?></span>
           </td>
           <td>
-            <button class="btn-ghost" title="View Details">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </button>
+            <a href="compare_snapshots.php?snap1=<?= $r['snapshot_id'] ?>" class="btn-ghost" title="Compare Snapshot" style="text-decoration:none; display:inline-flex;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+            </a>
           </td>
         </tr>
+        <?php if (!empty($r['reason'])): ?>
+        <tr>
+          <td colspan="7" style="padding: 4px 16px 12px 16px; border-top: none; color: var(--text-muted); font-size: 12px; font-family: var(--font-mono);">
+            Reason: <?= h($r['reason']) ?>
+          </td>
+        </tr>
+        <?php endif; ?>
         <?php endforeach; ?>
         <?php if (!$rows): ?>
         <tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:20px">No snapshots yet.</td></tr>

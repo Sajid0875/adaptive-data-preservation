@@ -13,52 +13,83 @@ document.addEventListener('DOMContentLoaded', () => {
   Chart.defaults.plugins.legend.display = false;
   Chart.defaults.scale = Chart.defaults.scale || {};
 
-  // Drift Timeline (State Changes page)
+  // Dashboard Charts
+  if (window.chartData && window.chartData.dashboard) {
+    const dashTrendEl = document.getElementById('dashTrendChart');
+    if (dashTrendEl) {
+      new Chart(dashTrendEl, {
+        type: 'line',
+        data: {
+          labels: window.chartData.dashboard.trendLabels,
+          datasets: [{
+            label: 'Avg Entropy',
+            data: window.chartData.dashboard.trendData,
+            borderColor: colors.cyan,
+            backgroundColor: 'rgba(34,211,238,0.1)',
+            fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: colors.cyan
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: colors.grid } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    const dashDistEl = document.getElementById('dashDistChart');
+    if (dashDistEl) {
+      new Chart(dashDistEl, {
+        type: 'doughnut',
+        data: {
+          labels: ['Discard', 'Compress', 'Preserve', 'Archive'],
+          datasets: [{
+            data: window.chartData.dashboard.decisionDist,
+            backgroundColor: [colors.red, colors.blue, colors.green, colors.amber],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: true, position: 'right' } }
+        }
+      });
+    }
+  }
+
+  // State Changes: Change Type Distribution Chart
   const driftEl = document.getElementById('driftChart');
-  if (driftEl) {
+  if (driftEl && window.chartData && window.chartData.changes) {
     new Chart(driftEl, {
-      type: 'line',
+      type: 'pie',
       data: {
-        labels: ['ALPHA-1', 'GAMMA-4', 'DELTA-PRIME', 'OMEGA-SEC', 'CURRENT'],
+        labels: ['CREATE', 'UPDATE', 'DELETE', 'CORRUPTION'],
         datasets: [{
-          label: 'Composition',
-          data: [0.6, 0.5, 0.45, 0.35, 0.3],
-          borderColor: colors.cyan,
-          backgroundColor: 'rgba(34,211,238,0.08)',
-          fill: true, tension: 0.4, pointRadius: 4,
-          pointBackgroundColor: colors.cyan
-        }, {
-          label: 'Density',
-          data: [0.3, 0.28, 0.25, 0.22, 0.2],
-          borderColor: colors.amber,
-          backgroundColor: 'rgba(245,158,11,0.05)',
-          fill: true, tension: 0.4, pointRadius: 3,
-          pointBackgroundColor: colors.amber
+          data: window.chartData.changes.types,
+          backgroundColor: [colors.cyan, colors.green, colors.indigo, colors.red],
+          borderWidth: 0
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: true, position: 'top', align: 'end',
-          labels: { usePointStyle: true, pointStyle: 'circle', padding: 16 }
-        }},
-        scales: {
-          y: { grid: { color: colors.grid }, ticks: { callback: v => v.toFixed(1) + ' Pb' }},
-          x: { grid: { display: false }}
-        }
+        plugins: { legend: { display: true, position: 'right' } }
       }
     });
   }
 
-  // Entropy Threshold (Decisions page)
+  // Decisions: Decision count chart
   const threshEl = document.getElementById('entropyThresholdChart');
-  if (threshEl) {
+  if (threshEl && window.chartData && window.chartData.decisions) {
     new Chart(threshEl, {
       type: 'bar',
       data: {
-        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        labels: ['Discard', 'Compress', 'Preserve', 'Archive'],
         datasets: [{
-          data: [35, 42, 38, 50, 45, 65, 58],
-          backgroundColor: [colors.cyan, colors.cyan, colors.cyan, colors.cyan, colors.cyan, colors.red, colors.amber],
+          data: window.chartData.decisions.counts,
+          backgroundColor: [colors.red, colors.blue, colors.green, colors.amber],
           borderRadius: 3, barPercentage: 0.6
         }]
       },
@@ -94,36 +125,29 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Sector Decay charts (Entropy page)
-  document.querySelectorAll('.sector-chart').forEach((el, i) => {
-    const datasets = [
-      [8, 6, 5, 7, 4, 6, 5, 8, 6, 9],
-      [3, 2, 0, 4, 0, 6, 0, 0, 0, 0],
-      [7, 8, 6, 9, 7, 8, 9, 7, 8, 6]
-    ];
-    const driftData = [
-      [1, 1, 0, 1, 0, 0, 1, 0, 1, 0],
-      [0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
-      [1, 2, 1, 0, 1, 2, 1, 0, 2, 3]
-    ];
-    new Chart(el, {
-      type: 'bar',
-      data: {
-        labels: ['','','','','','','','','',''],
-        datasets: [{
-          data: datasets[i] || datasets[0],
-          backgroundColor: colors.cyan, borderRadius: 1, barPercentage: 0.7
-        },{
-          data: driftData[i] || driftData[0],
-          backgroundColor: colors.amber, borderRadius: 1, barPercentage: 0.7
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: { y: { display: false }, x: { display: false }},
-        plugins: { tooltip: { enabled: false }}
-      }
+  if (window.chartData && window.chartData.entropy) {
+    const sectors = window.chartData.entropy.sectors || [];
+    document.querySelectorAll('.sector-chart').forEach((el, i) => {
+      const dataPoints = sectors[i] ? sectors[i].scores : [];
+      // Pad to 10 points
+      while (dataPoints.length < 10) dataPoints.unshift(0);
+      new Chart(el, {
+        type: 'bar',
+        data: {
+          labels: ['','','','','','','','','',''],
+          datasets: [{
+            data: dataPoints,
+            backgroundColor: colors.cyan, borderRadius: 1, barPercentage: 0.7
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { y: { display: false, min: 0, max: 1 }, x: { display: false }},
+          plugins: { tooltip: { enabled: false } }
+        }
+      });
     });
-  });
+  }
 
   // Mean Entropy Gauge (Entropy page) - drawn with canvas
   const gaugeEl = document.getElementById('entropyGauge');
@@ -134,7 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const r = Math.min(w,h)/2 - 20;
     const startAngle = Math.PI * 0.8;
     const endAngle = Math.PI * 2.2;
-    const value = 0.642;
+    const avg = window.chartData && window.chartData.entropy ? window.chartData.entropy.avgEntropy : 0;
+    const value = Math.max(0, Math.min(1, avg)); // Cap 0 to 1
     const valueAngle = startAngle + (endAngle - startAngle) * value;
 
     // Background arc
