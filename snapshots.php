@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare('INSERT INTO state_snapshots(universe_id, version_number, snapshot_size_mb) VALUES (:u, :v, :s)');
         $stmt->execute([':u' => $universeId, ':v' => $versionNumber, ':s' => $sizeMb]);
         $message = 'Snapshot added. Entropy + decision computed automatically.';
-    } catch (Throwable $t) { $error = $t->getMessage(); }
+    } catch (RuntimeException $t) { $error = $t->getMessage(); } catch (Throwable $t) { error_log('snapshots.php error: ' . $t->getMessage()); $error = 'An unexpected database error occurred. Please try again.'; }
 }
 
 $universesList = $pdo->query('SELECT universe_id, name FROM universes ORDER BY name')->fetchAll();

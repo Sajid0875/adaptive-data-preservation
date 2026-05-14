@@ -14,6 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim((string)post('name', ''));
             $description = trim((string)post('description', ''));
             if ($name === '') throw new RuntimeException('Name is required.');
+            if (mb_strlen($name) > 255) throw new RuntimeException('Name must be 255 characters or fewer.');
+            if (mb_strlen($description) > 2000) throw new RuntimeException('Description must be 2000 characters or fewer.');
             $stmt = $pdo->prepare('INSERT INTO universes(name, description) VALUES (:name, :description)');
             $stmt->execute([':name' => $name, ':description' => $description]);
             $message = 'Universe created.';
@@ -23,6 +25,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $description = trim((string)post('description', ''));
             if ($universeId <= 0) throw new RuntimeException('Invalid universe.');
             if ($name === '') throw new RuntimeException('Name is required.');
+            if (mb_strlen($name) > 255) throw new RuntimeException('Name must be 255 characters or fewer.');
+            if (mb_strlen($description) > 2000) throw new RuntimeException('Description must be 2000 characters or fewer.');
             $stmt = $pdo->prepare('UPDATE universes SET name = :name, description = :description WHERE universe_id = :id');
             $stmt->execute([':name' => $name, ':description' => $description, ':id' => $universeId]);
             $message = 'Universe updated.';
@@ -33,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([':id' => $universeId]);
             $message = 'Universe deleted.';
         }
-    } catch (Throwable $t) { $error = $t->getMessage(); }
+    } catch (RuntimeException $t) { $error = $t->getMessage(); } catch (Throwable $t) { error_log('universes.php error: ' . $t->getMessage()); $error = 'An unexpected database error occurred. Please try again.'; }
 }
 
 $editId = (int)get('edit', 0);

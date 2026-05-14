@@ -10,8 +10,9 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $decisionId = (int)post('decision_id', 0);
     $newType = (string)post('new_decision', '');
-    $reason = (string)post('reason', 'Manual override');
-    if ($decisionId > 0 && in_array($newType, ['DISCARD','COMPRESS','PRESERVE','ARCHIVE'])) {
+    $reason = trim((string)post('reason', 'Manual override'));
+    if (mb_strlen($reason) > 1000) { $error = 'Reason must be 1000 characters or fewer.'; }
+    elseif ($decisionId > 0 && in_array($newType, ['DISCARD','COMPRESS','PRESERVE','ARCHIVE'])) {
         try {
             $stmt = $pdo->prepare("UPDATE preservation_decisions SET decision_type = ?, is_manual = true, manual_reason = ?, overridden_at = NOW() WHERE decision_id = ? RETURNING snapshot_id");
             $stmt->execute([$newType, $reason, $decisionId]);
@@ -34,7 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $message = "Decision successfully overridden to $newType.";
         } catch (Throwable $e) {
-            $error = $e->getMessage();
+            error_log('decisions.php error: ' . $e->getMessage());
+            $error = 'An unexpected database error occurred. Please try again.';
         }
     }
 }

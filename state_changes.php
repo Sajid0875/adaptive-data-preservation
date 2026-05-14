@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare('INSERT INTO state_changes(snapshot_id, change_type, change_weight) VALUES (:sid, :ct, :w)');
         $stmt->execute([':sid' => $snapshotId, ':ct' => $changeType, ':w' => $weight]);
         $message = 'Change added. Entropy + decision recomputed automatically.';
-    } catch (Throwable $t) { $error = $t->getMessage(); }
+    } catch (RuntimeException $t) { $error = $t->getMessage(); } catch (Throwable $t) { error_log('state_changes.php error: ' . $t->getMessage()); $error = 'An unexpected database error occurred. Please try again.'; }
 }
 
 $snapshots = $pdo->query("SELECT s.snapshot_id, u.name AS universe_name, s.version_number, s.created_at FROM state_snapshots s JOIN universes u ON u.universe_id = s.universe_id ORDER BY s.created_at DESC")->fetchAll();

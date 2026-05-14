@@ -3,9 +3,14 @@
 
 declare(strict_types=1);
 
+// Always suppress error display to end users (prevents information disclosure).
+// Errors are still logged to the PHP error log for debugging.
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 if (getenv('APP_DEBUG')) {
     error_reporting(E_ALL);
-    ini_set('display_errors', '1');
+} else {
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 }
 
 function db(): PDO {
