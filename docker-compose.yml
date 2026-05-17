@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_DEBUG: "1"
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: universe_preservation
+      DB_USER: postgres
+      DB_PASS: postgres
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: universe_preservation
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./database/02_functions_triggers_views.sql:/docker-entrypoint-initdb.d/02_functions_triggers_views.sql:ro
+      - ./database/03_sample_data.sql:/docker-entrypoint-initdb.d/03_sample_data.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d universe_preservation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
